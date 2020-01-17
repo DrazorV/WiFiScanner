@@ -1,0 +1,7 @@
+C:\Users\Drazor\RiderProjects\WiFiAnalyzer\WiFiAnalyzer\bin\Debug\WiFiAnalyzer.exe
+C:\Users\Drazor\RiderProjects\WiFiAnalyzer\WiFiAnalyzer\bin\Debug\WiFiAnalyzer.pdb
+C:\Users\Drazor\RiderProjects\WiFiAnalyzer\WiFiAnalyzer\obj\Debug\WiFiAnalyzer.csprojAssemblyReference.cache
+C:\Users\Drazor\RiderProjects\WiFiAnalyzer\WiFiAnalyzer\obj\Debug\WiFiAnalyzer.exe
+C:\Users\Drazor\RiderProjects\WiFiAnalyzer\WiFiAnalyzer\obj\Debug\WiFiAnalyzer.pdb
+C:\Users\Drazor\RiderProjects\WiFiAnalyzer\WiFiAnalyzer\obj\Debug\WiFiAnalyzer.csproj.CopyComplete
+C:\Users\Drazor\RiderProjects\WiFiAnalyzer\WiFiAnalyzer\bin\Debug\SimpleWifi.dll
