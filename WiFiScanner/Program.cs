@@ -255,7 +255,7 @@ namespace WiFiAnalyzer
         }
 
 
-        private static string GetSubnet(String currentIp) {
+        private static string GetSubnet(string currentIp) {
             var firstSeparator = currentIp.LastIndexOf('/');
             var lastSeparator = currentIp.LastIndexOf('.');
             return currentIp.Substring(firstSeparator + 1, lastSeparator + 1);
