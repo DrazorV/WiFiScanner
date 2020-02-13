@@ -2,7 +2,6 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Threading;
@@ -15,6 +14,7 @@ namespace WiFiAnalyzer
         private static int _nFound;
         private static readonly object LockObj = new object();
         private static Wifi _wifi;
+        private static string _subnet;
 
         public static void Main()
         {
@@ -92,7 +92,7 @@ namespace WiFiAnalyzer
             Console.WriteLine("\r\n-- Access point list --");
             IEnumerable<AccessPoint> accessPoints = _wifi.GetAccessPoints().OrderByDescending(ap => ap.SignalStrength);
 
-            int i = 0;
+            var i = 0;
             var enumerable = accessPoints.ToList();
             foreach (var ap in enumerable)
                 Console.WriteLine("{0}. {1} {2}% Connected: {3}", i++, ap.Name, ap.SignalStrength, ap.IsConnected);
@@ -168,9 +168,15 @@ namespace WiFiAnalyzer
                 {
                     var authRequest = new AuthRequest(selectedAp);
                     selectedAp.Connect(authRequest);
-                    Console.WriteLine("Connected to " + selectedAp.Name);
-                    var subnet = GetSubnet(GetLocalIpAddress());
-                    Console.WriteLine(CheckHosts(subnet));
+                    if (_wifi.ConnectionStatus == WifiStatus.Connected)
+                    {
+                        Console.WriteLine("Connected to " + selectedAp.Name);
+                        _subnet = "test";
+                        Thread.Sleep(1000);
+                        _subnet = GetSubnet(GetAllLocalIPv4(NetworkInterfaceType.Wireless80211).FirstOrDefault());
+                        Console.WriteLine(_subnet);
+                        Console.WriteLine(CheckHosts(_subnet));
+                    }
                 }
                 else
                 {
@@ -182,9 +188,9 @@ namespace WiFiAnalyzer
 
         private static string PasswordPrompt(AccessPoint selectedAp)
         {
-            string password = string.Empty;
+            var password = string.Empty;
 
-            bool validPassFormat = false;
+            var validPassFormat = false;
 
             while (!validPassFormat)
             {
@@ -276,7 +282,7 @@ namespace WiFiAnalyzer
             {
                 Connect();
                 Console.WriteLine("Initiating network scan");
-                subnet = GetSubnet(GetLocalIpAddress());
+                subnet = GetSubnet(GetAllLocalIPv4(NetworkInterfaceType.Wireless80211).FirstOrDefault());
                 Console.WriteLine(CheckHosts(subnet));
             }
             else
@@ -289,7 +295,7 @@ namespace WiFiAnalyzer
                 }
 
                 Console.WriteLine("Initiating network scan");
-                subnet = GetSubnet(GetLocalIpAddress());
+                subnet = GetSubnet(GetAllLocalIPv4(NetworkInterfaceType.Wireless80211).FirstOrDefault());
                 Console.WriteLine(CheckHosts(subnet));
             }
         }
@@ -301,34 +307,26 @@ namespace WiFiAnalyzer
             return currentIp.Substring(firstSeparator + 1, lastSeparator + 1);
         }
 
-        private static string GetLocalIpAddress()
-        {
-            var host = Dns.GetHostEntry(Dns.GetHostName());
-            foreach (var ip in host.AddressList)
-            {
-                if (ip.AddressFamily == AddressFamily.InterNetwork)
-                {
-                    return ip.ToString();
-                }
-            }
 
-            throw new Exception("No network adapters with an IPv4 address in the system!");
+        private static IEnumerable<string> GetAllLocalIPv4(NetworkInterfaceType type)
+        {
+            return (from item in NetworkInterface.GetAllNetworkInterfaces() 
+                where item.NetworkInterfaceType == type && item.OperationalStatus == OperationalStatus.Up from ip 
+                    in item.GetIPProperties().UnicastAddresses where ip.Address.AddressFamily == AddressFamily.InterNetwork 
+                        select ip.Address.ToString()).ToArray();
         }
 
         private static int CheckHosts(string subnet)
         {
             _nFound = 0;
             var tasks = new List<Task>();
-
             for (var i = 1; i < 255; i++)
             {
                 var host = subnet + i;
                 var p = new Ping();
-                
                 var task = PingAndUpdateAsync(p, host);
                 tasks.Add(task);
             }
-
             while (!Task.WhenAll(tasks).IsCompleted)
             {
                 Thread.Sleep(1000);
@@ -339,9 +337,9 @@ namespace WiFiAnalyzer
 
         private static async Task PingAndUpdateAsync(Ping ping, string ip)
         {
-            var reply = await ping.SendPingAsync(ip, 1000);
+            var reply = await ping.SendPingAsync(ip, 2000);
 
-            if (reply.Status == IPStatus.Success)
+            if (reply.Status == IPStatus.Success && reply.Address.AddressFamily == AddressFamily.InterNetwork)
             {
                 Console.WriteLine(ip);
                 lock (LockObj)
