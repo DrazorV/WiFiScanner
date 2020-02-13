@@ -6,11 +6,14 @@ using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Threading;
+using System.Threading.Tasks;
 
 namespace WiFiAnalyzer
 {
     internal static class Program
     {
+        private static int _nFound;
+        private static readonly object LockObj = new object();
         private static Wifi _wifi;
 
         public static void Main()
@@ -31,7 +34,7 @@ namespace WiFiAnalyzer
                 Console.WriteLine("X. Print profile XML");
                 Console.WriteLine("R. Remove profile");
                 Console.WriteLine("I. Show access point information");
-                Console.WriteLine("F. Find number of devices in access point");
+                Console.WriteLine("F. Find number of devices in each access point");
                 Console.WriteLine("Q. Quit");
 
                 command = Console.ReadLine()?.ToLower();
@@ -56,7 +59,9 @@ namespace WiFiAnalyzer
                     break;
                 case "s":
                     Console.WriteLine("\r\n-- CONNECTION STATUS --");
-                    Console.WriteLine(_wifi.ConnectionStatus == WifiStatus.Connected ? "You are connected to a wifi" : "You are not connected to a wifi");
+                    Console.WriteLine(_wifi.ConnectionStatus == WifiStatus.Connected
+                        ? "You are connected to a wifi"
+                        : "You are not connected to a wifi");
                     break;
                 case "x":
                     ProfileXml();
@@ -72,13 +77,16 @@ namespace WiFiAnalyzer
                     break;
                 case "q":
                     break;
+                case "t":
+                    AutoFind();
+                    break;
                 default:
                     Console.WriteLine("\r\nIncorrect command.");
                     break;
             }
         }
-        
-        
+
+
         private static IEnumerable<AccessPoint> List()
         {
             Console.WriteLine("\r\n-- Access point list --");
@@ -86,11 +94,12 @@ namespace WiFiAnalyzer
 
             int i = 0;
             var enumerable = accessPoints.ToList();
-            foreach (var ap in enumerable) Console.WriteLine("{0}. {1} {2}% Connected: {3}", i++, ap.Name, ap.SignalStrength, ap.IsConnected);
+            foreach (var ap in enumerable)
+                Console.WriteLine("{0}. {1} {2}% Connected: {3}", i++, ap.Name, ap.SignalStrength, ap.IsConnected);
 
             return enumerable;
         }
-        
+
         private static void Connect()
         {
             var accessPoints = List();
@@ -104,6 +113,7 @@ namespace WiFiAnalyzer
                 Console.Write("\r\nIndex out of bounds");
                 return;
             }
+
             var selectedAp = enumerable.ToList()[selectedIndex];
 
             // Auth
@@ -140,9 +150,36 @@ namespace WiFiAnalyzer
                 }
             }
 
-            selectedAp.ConnectAsync(authRequest, overwrite, OnConnectedComplete);
+            selectedAp.Connect(authRequest, overwrite);
         }
-        
+
+        private static void AutoFind()
+        {
+            var accessPoints = List();
+
+            var enumerable = accessPoints.ToList();
+            for (var selectedIndex = 0; selectedIndex < enumerable.Count; selectedIndex++)
+            {
+                _wifi.Disconnect();
+                var selectedAp = enumerable.ToList()[selectedIndex];
+
+                // Auth
+                if (selectedAp.HasProfile)
+                {
+                    var authRequest = new AuthRequest(selectedAp);
+                    selectedAp.Connect(authRequest);
+                    Console.WriteLine("Connected to " + selectedAp.Name);
+                    var subnet = GetSubnet(GetLocalIpAddress());
+                    Console.WriteLine(CheckHosts(subnet));
+                }
+                else
+                {
+                    Console.WriteLine("Wifi named " + selectedAp.Name + " has no profile.");
+                }
+
+            }
+        }
+
         private static string PasswordPrompt(AccessPoint selectedAp)
         {
             string password = string.Empty;
@@ -162,6 +199,7 @@ namespace WiFiAnalyzer
 
             return password;
         }
+
         private static void ProfileXml()
         {
             var accessPoints = List();
@@ -175,6 +213,7 @@ namespace WiFiAnalyzer
                 Console.Write("\r\nIndex out of bounds");
                 return;
             }
+
             var selectedAp = enumerable.ToList()[selectedIndex];
 
             Console.WriteLine("\r\n{0}\r\n", selectedAp.GetProfileXML());
@@ -193,6 +232,7 @@ namespace WiFiAnalyzer
                 Console.Write("\r\nIndex out of bounds");
                 return;
             }
+
             var selectedAp = enumerable.ToList()[selectedIndex];
 
             selectedAp.DeleteProfile();
@@ -213,6 +253,7 @@ namespace WiFiAnalyzer
                 Console.Write("\r\nIndex out of bounds");
                 return;
             }
+
             var selectedAp = enumerable.ToList()[selectedIndex];
 
             Console.WriteLine("\r\n{0}\r\n", selectedAp);
@@ -231,36 +272,34 @@ namespace WiFiAnalyzer
         private static void Finder()
         {
             string subnet;
-            if (_wifi.ConnectionStatus == WifiStatus.Connected)
+            if (_wifi.ConnectionStatus != WifiStatus.Connected)
+            {
+                Connect();
+                Console.WriteLine("Initiating network scan");
+                subnet = GetSubnet(GetLocalIpAddress());
+                Console.WriteLine(CheckHosts(subnet));
+            }
+            else
             {
                 Console.Write("\r\nYou are already connected to a network, do you want to change (y/n)? ");
                 if (Console.ReadLine()?.ToLower() == "y")
                 {
+                    _wifi.Disconnect();
                     Connect();
                 }
-                else
-                {
-                    Console.WriteLine("Initiating network scan");
-                    subnet = GetSubnet(GetLocalIpAddress());
-                    Console.WriteLine(subnet);
-                    CheckHosts(subnet);
-                }
+
+                Console.WriteLine("Initiating network scan");
+                subnet = GetSubnet(GetLocalIpAddress());
+                Console.WriteLine(CheckHosts(subnet));
             }
-            Connect();
-            if (_wifi.ConnectionStatus != WifiStatus.Connected) System.Threading.Thread.Sleep(10000);
-            Console.WriteLine("Initiating network scan");
-            subnet = GetSubnet(GetLocalIpAddress());
-            Console.WriteLine(subnet);
-            CheckHosts(subnet);
         }
 
-
-        private static string GetSubnet(string currentIp) {
+        private static string GetSubnet(string currentIp)
+        {
             var firstSeparator = currentIp.LastIndexOf('/');
             var lastSeparator = currentIp.LastIndexOf('.');
             return currentIp.Substring(firstSeparator + 1, lastSeparator + 1);
         }
-
 
         private static string GetLocalIpAddress()
         {
@@ -272,27 +311,44 @@ namespace WiFiAnalyzer
                     return ip.ToString();
                 }
             }
+
             throw new Exception("No network adapters with an IPv4 address in the system!");
         }
 
         private static int CheckHosts(string subnet)
         {
-            var devices = 0;
-            
-            var p = new Ping();
-            
-            for (var i = 1; i < 255; i++){
+            _nFound = 0;
+            var tasks = new List<Task>();
+
+            for (var i = 1; i < 255; i++)
+            {
                 var host = subnet + i;
-                var rep = p.Send(host);
+                var p = new Ping();
                 
-                if (rep != null && rep.Status == IPStatus.Success)
-                {
-                    Console.WriteLine(rep.Address.ToString());
-                    devices++;
-                }
+                var task = PingAndUpdateAsync(p, host);
+                tasks.Add(task);
             }
 
-            return devices;
+            while (!Task.WhenAll(tasks).IsCompleted)
+            {
+                Thread.Sleep(1000);
+            }
+            
+            return _nFound;
+        }
+
+        private static async Task PingAndUpdateAsync(Ping ping, string ip)
+        {
+            var reply = await ping.SendPingAsync(ip, 1000);
+
+            if (reply.Status == IPStatus.Success)
+            {
+                Console.WriteLine(ip);
+                lock (LockObj)
+                {
+                    _nFound++;
+                }
+            }
         }
     }
 }
